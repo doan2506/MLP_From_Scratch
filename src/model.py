@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-HIDDEN_LAYER_COUNT = 2
-HIDDEN_LAYER_SIZES = [64, 32]
+HIDDEN_LAYER_COUNT = 1
+HIDDEN_LAYER_SIZES = [16]
 OUTPUT_LAYER_SIZE = 1
 BETAS = [0.9, 0.999]
 
@@ -47,6 +47,9 @@ class MLP:
     
     def relu_derivative(self, z):
         return (z > 0).astype(float)
+    
+    def learning_rate_scheduler(self, initial_lr, epoch, decay_rate=0.5, decay_epochs=10):
+        return initial_lr * (decay_rate ** (epoch // decay_epochs))
 
     def forward_pass(self, X_batch, is_training=False):
         activations = [X_batch]
@@ -90,7 +93,7 @@ class MLP:
             delta_W.insert(0, dL_dW)
             delta_b.insert(0, dL_db)
         self.t += 1
-        for i in range(len(self.W)):
+        for i in range(HIDDEN_LAYER_COUNT + 1):
             self.m_W[i] = self.beta1 * self.m_W[i] + (1 - self.beta1) * delta_W[i].T
             self.v_W[i] = self.beta2 * self.v_W[i] + (1 - self.beta2) * (delta_W[i].T ** 2)
             m_W_hat = self.m_W[i] / (1 - self.beta1 ** self.t)
@@ -127,7 +130,9 @@ class MLP:
         self.v_W.append(np.zeros_like(W_output))
         self.m_b.append(np.zeros_like(b_output))
         self.v_b.append(np.zeros_like(b_output))
+        initial_lr = self.learning_rate
         for epoch in range(epochs):
+            self.learning_rate = self.learning_rate_scheduler(initial_lr, epoch)
             epoch_loss = 0
             indices = np.arange(self.X.shape[0])
             np.random.shuffle(indices)
