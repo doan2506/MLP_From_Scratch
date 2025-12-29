@@ -1,17 +1,18 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 HIDDEN_LAYER_COUNT = 2
-HIDDEN_LAYER_SIZES = [128, 64]
+HIDDEN_LAYER_SIZES = [64, 32]
 OUTPUT_LAYER_SIZE = 1
-CLASS_WEIGHTS = {0: 1.0, 1: 9.0}
 BETAS = [0.9, 0.999]
 
 class MLP:
-    def __init__(self, X, y, learning_rate=0.001):
+    def __init__(self, X, y, learning_rate=0.001, dropout_rate=0.1):
         self.X = X.to_numpy() if isinstance(X, pd.DataFrame) else X
         self.y = y.to_numpy().reshape(-1, 1) if isinstance(y, pd.Series) else y.reshape(-1, 1)
         self.learning_rate = learning_rate
+        self.dropout_rate = dropout_rate
         self.W = []
         self.b = []
         self.beta1 = BETAS[0]
@@ -22,6 +23,8 @@ class MLP:
         self.v_W = []
         self.m_b = []
         self.v_b = []
+        self.train_losses = []
+        self.val_losses = []
 
     def relu(self, z):
         return np.maximum(0, z)
@@ -32,12 +35,12 @@ class MLP:
     def weighted_binary_cross_entropy(self, y_true, y_pred):
         epsilon = 1e-15
         y_pred = np.clip(y_pred, epsilon, 1 - epsilon)
-        return - np.mean(CLASS_WEIGHTS[1] * y_true * np.log(y_pred) + CLASS_WEIGHTS[0] * (1 - y_true) * np.log(1 - y_pred))
+        return - np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
     
     def loss_derivative(self, y_true, y_pred):
         epsilon = 1e-15
         y_pred = np.clip(y_pred, epsilon, 1 - epsilon)
-        return - (CLASS_WEIGHTS[1] * y_true / y_pred) + (CLASS_WEIGHTS[0] * (1 - y_true) / (1 - y_pred))
+        return - (y_true / y_pred) + ((1 - y_true) / (1 - y_pred))
     
     def sigmoid_derivative(self, o):
         return o * (1 - o)
@@ -45,23 +48,29 @@ class MLP:
     def relu_derivative(self, z):
         return (z > 0).astype(float)
 
-    def forward_pass(self, X_batch):
+    def forward_pass(self, X_batch, is_training=False):
         activations = [X_batch]
         nets = []
+        masks = [] if is_training else None
         layer_input = X_batch
+        keep_prob = 1 - self.dropout_rate if is_training else 1.0
         for i in range(HIDDEN_LAYER_COUNT + 1):
+            z = np.dot(layer_input, self.W[i].T) + self.b[i]
             if i < HIDDEN_LAYER_COUNT:
-                z = np.dot(layer_input, self.W[i].T) + self.b[i]
                 layer_output = self.relu(z)
+                if is_training:
+                    mask = (np.random.rand(*layer_output.shape) < keep_prob).astype(float)
+                    layer_output *= mask
+                    layer_output /= keep_prob
+                    masks.append(mask / keep_prob)
             else:
-                z = np.dot(layer_input, self.W[i].T) + self.b[i]
                 layer_output = self.sigmoid(z)
             layer_input = layer_output
             activations.append(layer_output)
             nets.append(z)
-        return layer_output, activations, nets
+        return layer_output, activations, nets, masks
 
-    def back_propagation(self, y_batch, activations, nets):
+    def back_propagation(self, y_batch, activations, nets, masks):
         delta_W = []
         delta_b = []
         batch_size = y_batch.shape[0]
@@ -72,7 +81,10 @@ class MLP:
         delta_W.insert(0, dL_dW)
         delta_b.insert(0, dL_db)
         for i in range(HIDDEN_LAYER_COUNT - 1, -1, -1):
-            dL_dz = np.dot(dL_dz, self.W[i+1]) * self.relu_derivative(nets[i])
+            dL_dz_temp = np.dot(dL_dz, self.W[i+1])
+            if masks is not None:
+                dL_dz_temp *= masks[i]
+            dL_dz = dL_dz_temp * self.relu_derivative(nets[i])
             dL_dW = np.dot(activations[i].T, dL_dz) / batch_size
             dL_db = np.sum(dL_dz, axis=0, keepdims=True) / batch_size
             delta_W.insert(0, dL_dW)
@@ -90,8 +102,13 @@ class MLP:
             v_b_hat = self.v_b[i] / (1 - self.beta2 ** self.t)
             self.b[i] -= self.learning_rate * m_b_hat / (np.sqrt(v_b_hat) + self.epsilon)
 
+    def calculate_loss(self, X, y):
+        X_np = X.to_numpy() if isinstance(X, pd.DataFrame) else X
+        y_np = y.to_numpy().reshape(-1, 1) if isinstance(y, pd.Series) else y.reshape(-1, 1)
+        y_pred, _, _, _ = self.forward_pass(X_np, is_training=False)
+        return self.weighted_binary_cross_entropy(y_np, y_pred)
 
-    def train(self, batch_size, epochs):
+    def train(self, batch_size, epochs, X_val=None, y_val=None):
         for layer in range(HIDDEN_LAYER_COUNT):
             sigma = np.sqrt(2 / (self.X.shape[1] if layer == 0 else HIDDEN_LAYER_SIZES[layer - 1]))
             W_layer = np.random.randn(HIDDEN_LAYER_SIZES[layer], self.X.shape[1] if layer == 0 else HIDDEN_LAYER_SIZES[layer - 1]) * sigma
@@ -119,14 +136,37 @@ class MLP:
                 batch_indices = indices[start:end]
                 X_batch = self.X[batch_indices]
                 y_batch = self.y[batch_indices]
-                y_pred, activations, nets = self.forward_pass(X_batch)
+                y_pred, activations, nets, masks = self.forward_pass(X_batch, is_training=True)
                 batch_loss = self.weighted_binary_cross_entropy(y_batch, y_pred)
-                epoch_loss += batch_loss * batch_size
-                self.back_propagation(y_batch, activations, nets)
+                epoch_loss += batch_loss * len(batch_indices)
+                self.back_propagation(y_batch, activations, nets, masks)
             epoch_loss /= self.X.shape[0]
-            print(f"Epoch {epoch + 1}/{epochs}, Loss: {epoch_loss:.4f}")
+            self.train_losses.append(epoch_loss)
+            if X_val is not None and y_val is not None:
+                val_loss = self.calculate_loss(X_val, y_val)
+                self.val_losses.append(val_loss)
+                if epoch % 10 == 0 or epoch == epochs - 1:
+                    print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
+            else:
+                if epoch % 10 == 0 or epoch == epochs - 1:
+                    print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {epoch_loss:.4f}")
+
+    def plot_losses(self):
+        plt.figure(figsize=(10, 6))
+        epochs = range(1, len(self.train_losses) + 1)
+        plt.plot(epochs, self.train_losses, 'b-', label='Training Loss', linewidth=2)
+        if self.val_losses:
+            plt.plot(epochs, self.val_losses, 'r-', label='Validation Loss', linewidth=2)
+        plt.xlabel('Epoch', fontsize=12)
+        plt.ylabel('Loss', fontsize=12)
+        plt.title('Training vs Validation Loss', fontsize=14)
+        plt.legend(fontsize=10)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
 
     def predict(self, X):
-        X_np = X.to_numpy()
-        y_pred, _, _ = self.forward_pass(X_np)
-        return (y_pred >= 0.5).astype(int)
+        X_np = X.to_numpy() if isinstance(X, pd.DataFrame) else X
+        y_pred, _, _, _ = self.forward_pass(X_np, is_training=False)
+        # return (y_pred >= 0.5).astype(int)
+        return y_pred
