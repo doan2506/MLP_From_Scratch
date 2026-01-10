@@ -8,11 +8,12 @@ OUTPUT_LAYER_SIZE = 1
 BETAS = [0.9, 0.999]
 
 class MLP:
-    def __init__(self, X, y, learning_rate=0.001, dropout_rate=0.1):
+    def __init__(self, X, y, learning_rate=0.001, dropout_rate=0.1, verbose=True):
         self.X = X.to_numpy() if isinstance(X, pd.DataFrame) else X
         self.y = y.to_numpy().reshape(-1, 1) if isinstance(y, pd.Series) else y.reshape(-1, 1)
         self.learning_rate = learning_rate
         self.dropout_rate = dropout_rate
+        self.verbose = verbose
         self.W = []
         self.b = []
         self.beta1 = BETAS[0]
@@ -150,25 +151,16 @@ class MLP:
             if X_val is not None and y_val is not None:
                 val_loss = self.calculate_loss(X_val, y_val)
                 self.val_losses.append(val_loss)
-                if epoch % 10 == 0 or epoch == epochs - 1:
-                    print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
+                if epoch % 10 == 9 or epoch == 0:
+                    if self.verbose:
+                        print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
             else:
-                if epoch % 10 == 0 or epoch == epochs - 1:
-                    print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {epoch_loss:.4f}")
+                if epoch % 10 == 9 or epoch == 0:
+                    if self.verbose:
+                        print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {epoch_loss:.4f}")
 
-    def plot_losses(self):
-        plt.figure(figsize=(10, 6))
-        epochs = range(1, len(self.train_losses) + 1)
-        plt.plot(epochs, self.train_losses, 'b-', label='Training Loss', linewidth=2)
-        if self.val_losses:
-            plt.plot(epochs, self.val_losses, 'r-', label='Validation Loss', linewidth=2)
-        plt.xlabel('Epoch', fontsize=12)
-        plt.ylabel('Loss', fontsize=12)
-        plt.title('Training vs Validation Loss', fontsize=14)
-        plt.legend(fontsize=10)
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.show()
+    def get_losses(self):
+        return self.train_losses, self.val_losses
 
     def predict(self, X):
         X_np = X.to_numpy() if isinstance(X, pd.DataFrame) else X
