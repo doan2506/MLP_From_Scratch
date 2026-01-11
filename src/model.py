@@ -85,10 +85,10 @@ class MLP:
         delta_W.insert(0, dL_dW)
         delta_b.insert(0, dL_db)
         for i in range(HIDDEN_LAYER_COUNT - 1, -1, -1):
-            dL_dz_temp = np.dot(dL_dz, self.W[i+1])
+            dL_do = np.dot(dL_dz, self.W[i+1])
             if masks is not None:
-                dL_dz_temp *= masks[i]
-            dL_dz = dL_dz_temp * self.relu_derivative(nets[i])
+                dL_do *= masks[i]
+            dL_dz = dL_do * self.relu_derivative(nets[i])
             dL_dW = np.dot(activations[i].T, dL_dz) / batch_size
             dL_db = np.sum(dL_dz, axis=0, keepdims=True) / batch_size
             delta_W.insert(0, dL_dW)
