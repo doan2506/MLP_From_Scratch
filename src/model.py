@@ -110,7 +110,7 @@ class MLP:
         X_np = X.to_numpy() if isinstance(X, pd.DataFrame) else X
         y_np = y.to_numpy().reshape(-1, 1) if isinstance(y, pd.Series) else y.reshape(-1, 1)
         y_pred, _, _, _ = self.forward_pass(X_np, is_training=False)
-        return self.weighted_binary_cross_entropy(y_np, y_pred)
+        return self.binary_cross_entropy(y_np, y_pred)
 
     def train(self, batch_size, epochs, X_val=None, y_val=None):
         for layer in range(HIDDEN_LAYER_COUNT):
@@ -143,7 +143,7 @@ class MLP:
                 X_batch = self.X[batch_indices]
                 y_batch = self.y[batch_indices]
                 y_pred, activations, nets, masks = self.forward_pass(X_batch, is_training=True)
-                batch_loss = self.weighted_binary_cross_entropy(y_batch, y_pred)
+                batch_loss = self.binary_cross_entropy(y_batch, y_pred)
                 epoch_loss += batch_loss * len(batch_indices)
                 self.back_propagation(y_batch, activations, nets, masks)
             epoch_loss /= self.X.shape[0]
